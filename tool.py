@@ -28,8 +28,19 @@ class Accumulator():
         return self.data[idx]
 
 
+
+
 ## 定义metric
-def accuracy_iter(model, data_iter, funt_loss):
+
+def accuracy(y_hat, y):  #@save
+    """计算预测正确的数量。"""
+    if len(y_hat.shape) > 1 and y_hat.shape[1] > 1:
+        y_hat = y_hat.argmax(axis=1)
+    cmp = y_hat.type(y.dtype) == y
+    return float(cmp.type(y.dtype).sum())
+
+
+def accuracy_iter(model, data_iter):
     """AI is creating summary for accuracy_iter
 
     Parameters
@@ -45,16 +56,15 @@ def accuracy_iter(model, data_iter, funt_loss):
         return [loss_of_average, accuracy_of_average, false_rate_of_average]
     """
     
-    accu = Accumulator(4)
+    accu = Accumulator(3)
     with torch.no_grad():
         
         for X, y in data_iter:
             y_hat = model(X)
             cnt = len(y)
-            loss = funt_loss(y_hat, y)
             acc_t = (y_hat.argmax(axis=1) == y).sum()
             acc_f = (y_hat.argmax(axis=1) != y).sum()
-            accu.add([cnt, loss, acc_t, acc_f])
+            accu.add([cnt, acc_t, acc_f])
             
     return [x/accu.data[0] for x in accu.data][1:]
 
@@ -126,7 +136,91 @@ class Animation():
         else:
             plt.grid("major", axis='both')
 
+        print(legends_l , legends_r)
+        print(data_l , data_r)
         
         display.display(self.fig)
         
+
         display.clear_output(wait=True)
+
+
+
+## Trianer
+
+def train_epoch_p1(model, loss, optimizer, train_data_iter, test_data_iter):
+    """training function for one epoch, General in MLP style structrue
+
+    Parameters
+    ----------
+    model : Model
+        Use pytoch model or model in pytorch variables
+    loss : torch.nn.Module
+        Loss function
+    optimizer : torch.optims.Optimizer
+        Must be torch's Optimizer Class
+    train_data_iter : Iterator
+        Iterate data in Train
+    test_data_iter : Iterator
+        Iterate data in Test
+
+    Returns
+    -------
+    List
+        final_metrics = [train_loss, train_accuracy, test_accuracy]
+    """
+    
+    accu = Accumulator(3)
+    for batch_X, batch_y in train_data_iter:
+        
+        batch_y_hat = model(batch_X)
+        batch_loss = loss(batch_y_hat, batch_y)
+        optimizer.zero_grad()
+        batch_loss.backward()
+        optimizer.step()
+        
+        with torch.no_grad():
+            n = len(batch_y)
+            batch_acc = accuracy(batch_y_hat, batch_y)
+            accu.add([n, n*batch_loss, batch_acc])
+
+    train_metric = [x / accu.data[0] for x in accu.data][1:]
+    test_acc = accuracy_iter(model, test_data_iter)
+    final_metrics = train_metric + [test_acc[0]]
+    
+    return final_metrics
+
+
+
+def train_p1(epoch_num, model, loss, optimizer, train_data_iter, test_data_iter):
+    """training function, General in MLP style structrue
+
+    Parameters
+    ----------
+    epoch_num: Int
+        Numbers to train
+    model : Model
+        Use pytoch model or model in pytorch variables
+    loss : torch.nn.Module
+        Loss function
+    optimizer : torch.optims.Optimizer
+        Must be torch's Optimizer Class
+    train_data_iter : Iterator
+        Iterate data in Train
+    test_data_iter : Iterator
+        Iterate data in Test
+
+    Returns
+    -------
+    List
+        final_metrics = [train_loss, train_accuracy, test_accuracy]
+    """
+    
+    animation = Animation(epoch_show_num=epoch_num, secondary=True)
+    
+    for _ in range(epoch_num):
+        final_metrics = train_epoch_p1(model, loss, optimizer, train_data_iter, test_data_iter)
+        animation.add(data_l=[final_metrics[0]], data_r=final_metrics[1:], 
+                      legends_l=["train_loss"], legends_r=["train_accuracy", "test_accuracy"])
+    
+    print(final_metrics)
