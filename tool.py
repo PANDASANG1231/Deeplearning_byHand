@@ -1,3 +1,4 @@
+import time
 import numpy as np
 import seaborn as sns
 import torch
@@ -265,6 +266,7 @@ def train_p1(epoch_num, model, loss, optimizer, train_data_iter, test_data_iter)
     
     print(final_metrics)
     
+    
 def train_epoch_p2(model, loss, optimizer, train_data_iter, test_data_iter, device):
     """training function for one epoch, General in CNN style structrue, will use GPU run model
 
@@ -288,9 +290,11 @@ def train_epoch_p2(model, loss, optimizer, train_data_iter, test_data_iter, devi
     """
 
     accu = Accumulator(3)
+    time_accu = Accumulator(2)
+
 
     for batch_X, batch_y in train_data_iter:
-
+        time_ = time.time()
         batch_X, batch_y = batch_X.to(device=device), batch_y.to(device=device)
 
         batch_y_hat = model(batch_X)
@@ -299,22 +303,25 @@ def train_epoch_p2(model, loss, optimizer, train_data_iter, test_data_iter, devi
         optimizer.zero_grad()
         batch_loss.backward()
         optimizer.step()
+        time_ = time.time() - time_
+
 
         with torch.no_grad():
             n = len(batch_y)
             batch_acc = accuracy(batch_y_hat, batch_y)
             accu.add([n, n*batch_loss, batch_acc])
+            time_accu.add([time_, n])
 
 
 
-        train_metric = [x / accu.data[0] for x in accu.data][1:]
-        test_acc = accuracy_iter_gpu(model, test_data_iter, device)
-        final_metrics = train_metric + [test_acc[0]]
 
-    return final_metrics
+    train_metric = [x / accu.data[0] for x in accu.data][1:]
+    test_acc = accuracy_iter_gpu(model, test_data_iter, device)
+    final_metrics = train_metric + [test_acc[0]]
 
+    return final_metrics, [x / time_accu.data[0] for x in time_accu.data][1:]
 
-def train_p2(epoch_num, model, loss, lr, train_data_iter, test_data_iter, device):
+def train_p2(epoch_num, model, loss, lr, train_data_iter, test_data_iter, device, optim_type="SGD"):
     """training function, General in CNN style structrue, will use GPU run model
 
     Parameters
@@ -337,19 +344,30 @@ def train_p2(epoch_num, model, loss, lr, train_data_iter, test_data_iter, device
         final_metrics = [train_loss, train_accuracy, test_accuracy]
     """
 
-    def init_weights(m):    
+    def init_weights(m):
         if type(m) == torch.nn.Linear or type(m) == torch.nn.Conv2d:
-            torch.nn.init.xavier_uniform_(m.weight)
-  
+          torch.nn.init.xavier_uniform_(m.weight)
+    
     model.apply(init_weights)
     model.to(device=device)
-    optimizer = torch.optim.Adagrad(params=model.parameters(), lr=lr)
 
-    animation = Animation(epoch_show_num=epoch_num, secondary=True)
-  
+    if optim_type == "SGD":
+        optimizer = torch.optim.SGD(params=model.parameters(), lr=lr)
+    else:
+        if lr > 0.01:
+            lr = 0.01
+        optimizer = torch.optim.Adam(params=model.parameters(), lr=lr)
+
+    # animation = Animation(epoch_show_num=epoch_num, secondary=True)
+    
     for _ in range(epoch_num):
-        final_metrics = train_epoch_p2(model, loss, optimizer, train_data_iter, test_data_iter, device)
+        final_metrics, examplist = train_epoch_p2(model, loss, optimizer, train_data_iter, test_data_iter, device)
         # animation.add(data_l=[final_metrics[0]], data_r=final_metrics[1:], 
         #               legends_l=["train_loss"], legends_r=["train_accuracy", "test_accuracy"])
-  
-    print(final_metrics)
+      
+        print(f'loss {final_metrics[0]:.3f}, train acc {final_metrics[1]:.3f}, '
+              f'test acc {final_metrics[2]:.3f}')
+        
+    print(f'Calculation Ability: {examplist[0]:.1f} examples/sec on {str(device)}')
+    
+    
