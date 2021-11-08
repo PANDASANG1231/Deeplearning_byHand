@@ -68,6 +68,46 @@ def accuracy_iter(model, data_iter):
             
     return [x/accu.data[0] for x in accu.data][1:]
 
+def accuracy_iter_gpu(model, data_iter, device=None):
+    """AI is creating summary for accuracy_iter
+
+    Parameters
+    ----------
+    model : Function of Tensor
+        Return a single Tensor
+    data_iter : Iterator
+        Usually an iterator yields batch data
+
+    Returns
+    -------
+    List of floats
+        return [loss_of_average, accuracy_of_average, false_rate_of_average]
+    """
+    
+    if isinstance(model, torch.nn.Module):
+      model.eval()
+      if not device:
+        device = next(iter(model.parameters())).device
+
+    accu = Accumulator(3)
+    with torch.no_grad():
+        
+        for X, y in data_iter:
+
+            if isinstance(X, list):
+                X = [x.to(device) for x in X]
+            else:
+                X = X.to(device)
+            
+            y = y.to(device)
+            y_hat = model(X)
+            cnt = len(y)
+            acc_t = (y_hat.argmax(axis=1) == y).sum()
+            acc_f = (y_hat.argmax(axis=1) != y).sum()
+            accu.add([cnt, acc_t, acc_f])
+            
+    return [x/accu.data[0] for x in accu.data][1:]
+
 
 
 ## Animation Class
@@ -223,4 +263,93 @@ def train_p1(epoch_num, model, loss, optimizer, train_data_iter, test_data_iter)
         animation.add(data_l=[final_metrics[0]], data_r=final_metrics[1:], 
                       legends_l=["train_loss"], legends_r=["train_accuracy", "test_accuracy"])
     
+    print(final_metrics)
+    
+def train_epoch_p2(model, loss, optimizer, train_data_iter, test_data_iter, device):
+    """training function for one epoch, General in CNN style structrue, will use GPU run model
+
+    Parameters
+    ----------
+    model : Model
+        Use pytoch model or model in pytorch variables
+    loss : torch.nn.Module
+        Loss function
+    optimizer : torch.optims.Optimizer
+        Must be torch's Optimizer Class
+    train_data_iter : Iterator
+        Iterate data in Train
+    test_data_iter : Iterator
+        Iterate data in Test
+
+    Returns
+    -------
+    List
+        final_metrics = [train_loss, train_accuracy, test_accuracy]
+    """
+
+    accu = Accumulator(3)
+
+    for batch_X, batch_y in train_data_iter:
+
+        batch_X, batch_y = batch_X.to(device=device), batch_y.to(device=device)
+
+        batch_y_hat = model(batch_X)
+        batch_loss = loss(batch_y_hat, batch_y)
+
+        optimizer.zero_grad()
+        batch_loss.backward()
+        optimizer.step()
+
+        with torch.no_grad():
+            n = len(batch_y)
+            batch_acc = accuracy(batch_y_hat, batch_y)
+            accu.add([n, n*batch_loss, batch_acc])
+
+
+
+        train_metric = [x / accu.data[0] for x in accu.data][1:]
+        test_acc = accuracy_iter_gpu(model, test_data_iter, device)
+        final_metrics = train_metric + [test_acc[0]]
+
+    return final_metrics
+
+
+def train_p2(epoch_num, model, loss, lr, train_data_iter, test_data_iter, device):
+    """training function, General in CNN style structrue, will use GPU run model
+
+    Parameters
+    ----------
+    epoch_num: Int
+        Numbers to train
+    model : Model
+        Use pytoch model or model in pytorch variables
+    loss : torch.nn.Module
+        Loss function
+    lr : Learning rate
+    train_data_iter : Iterator
+        Iterate data in Train
+    test_data_iter : Iterator
+        Iterate data in Test
+
+    Returns
+    -------
+    List
+        final_metrics = [train_loss, train_accuracy, test_accuracy]
+    """
+
+    def init_weights(m):    
+        if type(m) == torch.nn.Linear or type(m) == torch.nn.Conv2d:
+            torch.nn.init.xavier_uniform_(m.weight)
+  
+    model.apply(init_weights)
+    model.to(device=device)
+    optimizer = torch.optim.Adagrad(params=model.parameters(), lr=lr)
+
+    animation = Animation(epoch_show_num=epoch_num, secondary=True)
+  
+    for _ in range(epoch_num):
+        final_metrics = train_epoch_p2(model, loss, optimizer, train_data_iter, test_data_iter, device)
+        # animation.add(data_l=[final_metrics[0]], data_r=final_metrics[1:], 
+        #               legends_l=["train_loss"], legends_r=["train_accuracy", "test_accuracy"])
+  
     print(final_metrics)
