@@ -7,8 +7,11 @@ import scipy as sp
 import matplotlib.pyplot as plt
 
 import torchvision
+from torch import nn
+from torch.nn import functional as F
 from torch.utils import data
 from torchvision import transforms
+
 
 
 ## 定义metrics
@@ -267,71 +270,16 @@ def train_p1(epoch_num, model, loss, optimizer, train_data_iter, test_data_iter)
     print(final_metrics)
     
     
-def train_epoch_p2(model, loss, optimizer, train_data_iter, test_data_iter, device):
-    """training function for one epoch, General in CNN style structrue, will use GPU run model
-
-    Parameters
-    ----------
-    model : Model
-        Use pytoch model or model in pytorch variables
-    loss : torch.nn.Module
-        Loss function
-    optimizer : torch.optims.Optimizer
-        Must be torch's Optimizer Class
-    train_data_iter : Iterator
-        Iterate data in Train
-    test_data_iter : Iterator
-        Iterate data in Test
-
-    Returns
-    -------
-    List
-        final_metrics = [train_loss, train_accuracy, test_accuracy]
-    """
-
-    accu = Accumulator(3)
-    time_accu = Accumulator(2)
-
-
-    for batch_X, batch_y in train_data_iter:
-        time_ = time.time()
-        batch_X, batch_y = batch_X.to(device=device), batch_y.to(device=device)
-
-        batch_y_hat = model(batch_X)
-        batch_loss = loss(batch_y_hat, batch_y)
-
-        optimizer.zero_grad()
-        batch_loss.backward()
-        optimizer.step()
-        time_ = time.time() - time_
-
-
-        with torch.no_grad():
-            n = len(batch_y)
-            batch_acc = accuracy(batch_y_hat, batch_y)
-            accu.add([n, n*batch_loss, batch_acc])
-            time_accu.add([time_, n])
-
-
-
-
-    train_metric = [x / accu.data[0] for x in accu.data][1:]
-    test_acc = accuracy_iter_gpu(model, test_data_iter, device)
-    final_metrics = train_metric + [test_acc[0]]
-
-    return final_metrics, [x / time_accu.data[0] for x in time_accu.data][1:]
-
-def train_p2(epoch_num, model, loss, lr, train_data_iter, test_data_iter, device, optim_type="SGD"):
+    
+def train_p2(net, train_iter, test_iter, num_epochs, lr, device, optim_type="SGD"):
     """training function, General in CNN style structrue, will use GPU run model
 
     Parameters
     ----------
-    epoch_num: Int
+    num_epochs: Int
         Numbers to train
-    model : Model
+    net : Model
         Use pytoch model or model in pytorch variables
-    loss : torch.nn.Module
-        Loss function
     lr : Learning rate
     train_data_iter : Iterator
         Iterate data in Train
@@ -340,34 +288,48 @@ def train_p2(epoch_num, model, loss, lr, train_data_iter, test_data_iter, device
 
     Returns
     -------
-    List
-        final_metrics = [train_loss, train_accuracy, test_accuracy]
+
     """
 
+
     def init_weights(m):
-        if type(m) == torch.nn.Linear or type(m) == torch.nn.Conv2d:
-          torch.nn.init.xavier_uniform_(m.weight)
+        if type(m) == nn.Linear or type(m) == nn.Conv2d:
+            nn.init.xavier_uniform_(m.weight)
+    net.apply(init_weights)
+    print('training on', device)
+    net.to(device)
+    optimizer = torch.optim.SGD(net.parameters(), lr=lr)
     
-    model.apply(init_weights)
-    model.to(device=device)
-
+    loss = nn.CrossEntropyLoss()
+    
     if optim_type == "SGD":
-        optimizer = torch.optim.SGD(params=model.parameters(), lr=lr)
+        optimizer = torch.optim.SGD(params=net.parameters(), lr=lr)
     else:
-        if lr > 0.01:
-            lr = 0.01
-        optimizer = torch.optim.Adam(params=model.parameters(), lr=lr)
+        optimizer = torch.optim.Adam(params=net.parameters(), lr=lr)
+    
 
-    # animation = Animation(epoch_show_num=epoch_num, secondary=True)
-    
-    for _ in range(epoch_num):
-        final_metrics, examplist = train_epoch_p2(model, loss, optimizer, train_data_iter, test_data_iter, device)
-        # animation.add(data_l=[final_metrics[0]], data_r=final_metrics[1:], 
-        #               legends_l=["train_loss"], legends_r=["train_accuracy", "test_accuracy"])
+    num_batches = len(train_iter)
+    for epoch in range(num_epochs):
+        # 训练损失之和，训练准确率之和，样本数
+        losses, accurate_num, nums = np.array([0, 0, 0])
+        timer = 0
+        net.train()
+        for i, (X, y) in enumerate(train_iter):
+            time1 = time.time()
+            optimizer.zero_grad()
+            X, y = X.to(device), y.to(device)
+            y_hat = net(X)
+            l = loss(y_hat, y)
+            l.backward()
+            optimizer.step()
+            with torch.no_grad():
+                losses += l * X.shape[0]
+                accurate_num += accuracy(y_hat, y)
+                nums += X.shape[0]
+                timer += time.time() - time1
       
-        print(f'loss {final_metrics[0]:.3f}, train acc {final_metrics[1]:.3f}, '
-              f'test acc {final_metrics[2]:.3f}')
-        
-    print(f'Calculation Ability: {examplist[0]:.1f} examples/sec on {str(device)}')
-    
-    
+        train_l = losses / nums
+        train_acc = accurate_num / nums
+        test_acc = accuracy_iter_gpu(net, test_iter)[0]
+        print(f'loss {train_l:.3f}, train acc {train_acc:.3f}, test acc {test_acc:.3f}')
+        print(f'{accurate_num * num_epochs / timer:.1f} examples/sec on {str(device)}')
