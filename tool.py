@@ -307,12 +307,11 @@ def train_p2(net, train_iter, test_iter, num_epochs, lr, device, optim_type="SGD
     else:
         optimizer = torch.optim.Adam(params=net.parameters(), lr=lr)
     
+    timer = 0
 
-    num_batches = len(train_iter)
     for epoch in range(num_epochs):
         # 训练损失之和，训练准确率之和，样本数
         losses, accurate_num, nums = np.array([0, 0, 0])
-        timer = 0
         net.train()
         for i, (X, y) in enumerate(train_iter):
             time1 = time.time()
@@ -332,4 +331,5 @@ def train_p2(net, train_iter, test_iter, num_epochs, lr, device, optim_type="SGD
         train_acc = accurate_num / nums
         test_acc = accuracy_iter_gpu(net, test_iter)[0]
         print(f'loss {train_l:.3f}, train acc {train_acc:.3f}, test acc {test_acc:.3f}')
-        print(f'{accurate_num * num_epochs / timer:.1f} examples/sec on {str(device)}')
+    
+    print(f'{nums * num_epochs / timer:.1f} examples/sec on {str(device)}')
