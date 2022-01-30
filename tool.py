@@ -271,7 +271,7 @@ def train_p1(epoch_num, model, loss, optimizer, train_data_iter, test_data_iter)
     
     
     
-def train_p2(net, train_iter, test_iter, num_epochs, lr, device, optim_type="SGD"):
+def train_p2(net, train_iter, test_iter, num_epochs, loss, optimizer, device):
     """training function, General in CNN style structrue, will use GPU run model
 
     Parameters
@@ -291,21 +291,8 @@ def train_p2(net, train_iter, test_iter, num_epochs, lr, device, optim_type="SGD
 
     """
 
-
-    def init_weights(m):
-        if type(m) == nn.Linear or type(m) == nn.Conv2d:
-            nn.init.xavier_uniform_(m.weight)
-    net.apply(init_weights)
     print('training on', device)
     net.to(device)
-    optimizer = torch.optim.SGD(net.parameters(), lr=lr)
-    
-    loss = nn.CrossEntropyLoss()
-    
-    if optim_type == "SGD":
-        optimizer = torch.optim.SGD(params=net.parameters(), lr=lr)
-    else:
-        optimizer = torch.optim.Adam(params=net.parameters(), lr=lr)
     
     timer = 0
 
